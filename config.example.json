@@ -1,0 +1,11 @@
+{
+  "enabled": true,
+  "check_seconds": 20,
+  "networks": {
+    "Your-WiFi-Name": {
+      "username": "student-id",
+      "password": "your-password",
+      "portal_url": ""
+    }
+  }
+}

@@ -3,3 +3,4 @@ keeper.log
 __pycache__/
 *.pyc
 .venv/
+dist/

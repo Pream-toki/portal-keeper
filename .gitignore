@@ -1,6 +1,11 @@
 config.json
 keeper.log
-__pycache__/
-*.pyc
-.venv/
+portal-keeper.exe
 dist/
+__pycache__/
+win/target/
+android/build/
+android/seed.properties
+android/debug.keystore
+*.apk
+*.idsig

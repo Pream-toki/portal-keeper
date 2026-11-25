@@ -1,11 +1,19 @@
 {
   "enabled": true,
-  "check_seconds": 20,
-  "networks": {
-    "Your-WiFi-Name": {
+  "checkSeconds": 15,
+  "startWithWindows": true,
+  "networks": [
+    {
+      "ssid": "Campus-WiFi",
       "username": "student-id",
       "password": "your-password",
-      "portal_url": ""
+      "portal": ""
+    },
+    {
+      "ssid": "Campus-FL7",
+      "username": "other-id",
+      "password": "other-password",
+      "portal": ""
     }
-  }
+  ]
 }

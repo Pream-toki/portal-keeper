@@ -3,6 +3,7 @@ package com.pream.portalkeeper;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
@@ -16,6 +17,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
+import android.provider.Settings;
 
 import java.io.BufferedReader;
 import java.io.InputStream;
@@ -34,6 +36,7 @@ public class KeeperService extends Service {
 
     private HandlerThread thread;
     private Handler handler;
+    private PendingIntent panel;
     private final Runnable tick = new Runnable() {
         @Override
         public void run() {
@@ -54,6 +57,7 @@ public class KeeperService extends Service {
     public void onCreate() {
         super.onCreate();
         RUNNING = true;
+        panel = wifiPanel();
         NotificationChannel ch = new NotificationChannel(
                 "keeper", "Portal Keeper", NotificationManager.IMPORTANCE_LOW);
         ch.setShowBadge(false);
@@ -83,6 +87,16 @@ public class KeeperService extends Service {
         super.onDestroy();
     }
 
+    /** Tap on the notification jumps straight into the system Wi-Fi panel. */
+    private PendingIntent wifiPanel() {
+        Intent i = Build.VERSION.SDK_INT >= 29
+                ? new Intent(Settings.Panel.ACTION_WIFI)
+                : new Intent(Settings.ACTION_WIFI_SETTINGS);
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        return PendingIntent.getActivity(this, 7, i,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    }
+
     private Notification note(String text) {
         Notification.Builder b = Build.VERSION.SDK_INT >= 26
                 ? new Notification.Builder(this, "keeper")
@@ -90,6 +104,8 @@ public class KeeperService extends Service {
         b.setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setContentTitle("Portal Keeper")
                 .setContentText(text)
+                .setContentIntent(panel)
+                .setShowWhen(false)
                 .setOngoing(true);
         return b.build();
     }

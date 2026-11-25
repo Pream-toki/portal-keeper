@@ -55,40 +55,136 @@ fn online() -> bool {
 }
 
 fn login(net: &config::Net) -> Result<(), String> {
-    let gateway = wlan::gateway().ok_or("no default gateway")?;
-    let portal = if net.portal.trim().is_empty() {
-        format!("http://{gateway}/login")
-    } else {
-        net.portal.trim().to_string()
-    };
-    let body = format!(
-        "username={}&password={}&dst={}&popup=true",
-        http::encode(&net.username),
-        http::encode(&net.password),
-        http::encode(PROBE)
-    );
-    let resp = http::post(&portal, &body, 8000).ok_or("portal unreachable")?;
-    config::log(&format!(
-        "post {portal} as {} -> {} {}",
-        net.username,
-        resp.status,
-        resp.location
-    ));
-    if resp.status >= 400 {
-        return Err(format!("portal returned {}", resp.status));
-    }
-    if !resp.location.is_empty() {
-        if let Some(follow) = http::get(&resp.location, 6000) {
-            config::log(&format!("get {} -> {}", resp.location, follow.status));
+    // Right after associating, DHCP may not have handed out a gateway yet.
+    let mut found = None;
+    for _ in 0..12 {
+        if let Some(g) = wlan::gateway() {
+            found = Some(g);
+            break;
         }
+        std::thread::sleep(Duration::from_millis(500));
     }
-    std::thread::sleep(Duration::from_millis(300));
-    if online() {
-        Ok(())
-    } else {
-        let body = resp.body.replace('\n', " ");
-        let snippet: String = body.chars().take(200).collect();
-        Err(format!("still offline after post ({}): {snippet}", resp.status))
+    let gateway = found.ok_or("no default gateway")?;
+    let user = http::encode(net.username.trim());
+    let pass = http::encode(&net.password);
+    let dst = http::encode(PROBE);
+    let mut last = String::from("no portal answered");
+
+    let mut targets: Vec<(String, String)> = Vec::new();
+    if !net.portal.trim().is_empty() {
+        targets.push((
+            net.portal.trim().to_string(),
+            format!("username={user}&password={pass}&dst={dst}&popup=true"),
+        ));
+    }
+    // MikroTik hotspot (KBU.WiFi)
+    targets.push((
+        format!("http://{gateway}/login"),
+        format!("username={user}&password={pass}&dst={dst}&popup=true"),
+    ));
+    // IBSG Lite portal (KBU-FL7)
+    targets.push((
+        format!("http://{gateway}/portal/user-authen.php"),
+        format!("txtLogin={user}&txtPasswd={pass}&btnLogin=Login&reqUrl={dst}&reqCheck=false"),
+    ));
+
+    for (url, body) in targets {
+        let resp = match http::post(&url, &body, 8000) {
+            Some(r) => r,
+            None => {
+                last = format!("{url} unreachable");
+                continue;
+            }
+        };
+        let auth = format!("status {}", resp.status);
+        config::log(&format!("post {url} as {} -> {auth}", net.username));
+        if !resp.location.is_empty() {
+            let _ = http::get(&resp.location, 6000);
+        }
+        std::thread::sleep(Duration::from_millis(400));
+        if online() {
+            return Ok(());
+        }
+        last = format!("{url} -> {auth}");
+    }
+    Err(last)
+}
+
+/// Switch to another known network when this one is weak and the other is clearly better.
+fn maybe_switch(cfg: &config::Config, current_ssid: &str) {
+    let cur = match wlan::current() {
+        Some(c) => c,
+        None => return,
+    };
+    if cur.signal >= cfg.weak_signal {
+        return;
+    }
+    let best = wlan::available()
+        .into_iter()
+        .filter(|w| {
+            config::normalize(&w.ssid) != config::normalize(current_ssid)
+                && config::lookup(cfg, &w.ssid).is_some()
+                && w.signal > cur.signal + 10
+        })
+        .max_by_key(|w| w.signal);
+    if let Some(b) = best {
+        config::log(&format!(
+            "auto-switch {} ({}%) -> {} ({}%)",
+            cur.ssid, cur.signal, b.ssid, b.signal
+        ));
+        wlan::connect(&b.ssid);
+    }
+}
+
+fn write_status(text: &str) {
+    let _ = std::fs::write(config::dir().join("portal-keeper-status.txt"), text);
+    println!("{text}");
+}
+
+fn cli(args: &[String]) -> bool {
+    match args.get(1).map(|s| s.as_str()) {
+        Some("--status") => {
+            let cfg = config::load();
+            let cur = wlan::current();
+            let mut text = String::new();
+            text += &format!(
+                "wifi: {}\nsignal: {}\ngateway: {}\nonline: {}\nautoSwitch: {}\n",
+                cur.as_ref().map(|w| w.ssid.clone()).unwrap_or_default(),
+                cur.as_ref().map(|w| w.signal.to_string()).unwrap_or_default(),
+                wlan::gateway().unwrap_or_default(),
+                online(),
+                cfg.auto_switch
+            );
+            text += "known:\n";
+            for n in &cfg.networks {
+                text += &format!("  {} -> {}\n", n.ssid, n.username);
+            }
+            text += "visible:\n";
+            for w in wlan::available() {
+                text += &format!("  {} {}%\n", w.ssid, w.signal);
+            }
+            write_status(&text);
+            true
+        }
+        Some("--switch") => {
+            let target = args.get(2).cloned().unwrap_or_default();
+            let requested = !target.is_empty() && wlan::connect(&target);
+            let joined = requested && wlan::wait_for(&target, 20);
+            write_status(&format!(
+                "switch {target}: {}\nwifi now: {}\nonline: {}\n",
+                if joined {
+                    "joined"
+                } else if requested {
+                    "requested, did not associate"
+                } else {
+                    "request failed"
+                },
+                wlan::ssid().unwrap_or_default(),
+                online()
+            ));
+            true
+        }
+        _ => false,
     }
 }
 
@@ -128,6 +224,9 @@ fn worker() {
                         last_ssid = ssid.clone();
                         if online() {
                             set(&format!("ok · {ssid}"), true, &ssid);
+                            if cfg.auto_switch {
+                                maybe_switch(&cfg, &ssid);
+                            }
                         } else {
                             set(&format!("signing in · {ssid}"), false, &ssid);
                             match login(net) {
@@ -187,6 +286,10 @@ pub fn startup_set(want: bool) {
 }
 
 fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 && cli(&args) {
+        return;
+    }
     let cfg = config::load();
     if cfg.start_with_windows {
         startup_set(true);

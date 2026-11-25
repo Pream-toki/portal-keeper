@@ -2,6 +2,8 @@
   "enabled": true,
   "checkSeconds": 15,
   "startWithWindows": true,
+  "autoSwitch": false,
+  "weakSignal": 45,
   "networks": [
     {
       "ssid": "Campus-WiFi",

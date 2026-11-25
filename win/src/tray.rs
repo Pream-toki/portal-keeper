@@ -156,6 +156,23 @@ unsafe fn show_menu(hwnd: HWND) {
         toggle.as_ptr(),
     );
     AppendMenuW(menu, MF_STRING, 2, test.as_ptr());
+    let current = crate::config::normalize(&ssid);
+    let mut labels: Vec<Vec<u16>> = Vec::new();
+    for (i, net) in cfg.networks.iter().enumerate() {
+        if crate::config::normalize(&net.ssid) == current {
+            continue;
+        }
+        let label = wide(&format!("Join {}", net.ssid));
+        AppendMenuW(menu, MF_STRING, 100 + i, label.as_ptr());
+        labels.push(label);
+    }
+    let auto = wide("Auto switch when signal is weak");
+    AppendMenuW(
+        menu,
+        MF_STRING | if cfg.auto_switch { MF_CHECKED } else { 0 },
+        7,
+        auto.as_ptr(),
+    );
     AppendMenuW(
         menu,
         MF_STRING | if cfg.start_with_windows { MF_CHECKED } else { 0 },
@@ -192,6 +209,18 @@ unsafe fn show_menu(hwnd: HWND) {
             DestroyWindow(hwnd);
         }
         6 => toggle_startup(),
+        7 => {
+            let mut cfg = crate::config::load();
+            cfg.auto_switch = !cfg.auto_switch;
+            crate::config::save(&cfg);
+        }
+        cmd if cmd >= 100 => {
+            let cfg = crate::config::load();
+            if let Some(net) = cfg.networks.get((cmd - 100) as usize) {
+                crate::config::log(&format!("join requested -> {}", net.ssid));
+                crate::wlan::connect(&net.ssid);
+            }
+        }
         _ => {}
     }
 }

@@ -23,6 +23,14 @@ pub struct Config {
     pub networks: Vec<Net>,
     #[serde(default, rename = "startWithWindows")]
     pub start_with_windows: bool,
+    #[serde(default, rename = "autoSwitch")]
+    pub auto_switch: bool,
+    #[serde(default = "weak_default", rename = "weakSignal")]
+    pub weak_signal: u32,
+}
+
+fn weak_default() -> u32 {
+    45
 }
 
 fn yes() -> bool {
@@ -44,6 +52,8 @@ impl Default for Config {
                 portal: String::new(),
             }],
             start_with_windows: true,
+            auto_switch: false,
+            weak_signal: 45,
         }
     }
 }

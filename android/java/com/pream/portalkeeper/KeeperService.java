@@ -7,6 +7,7 @@ import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.net.ConnectivityManager;
+import android.net.DhcpInfo;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.wifi.WifiInfo;
@@ -146,12 +147,20 @@ public class KeeperService extends Service {
     private String gateway(Network n) {
         ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
         android.net.LinkProperties lp = cm.getLinkProperties(n);
-        if (lp == null) return "";
-        for (android.net.RouteInfo r : lp.getRoutes()) {
-            if (r.isDefaultRoute() && r.getGateway() != null) {
-                String g = r.getGateway().getHostAddress();
-                if (g != null && g.contains(".")) return g;
+        if (lp != null) {
+            for (android.net.RouteInfo r : lp.getRoutes()) {
+                if (r.isDefaultRoute() && r.getGateway() != null) {
+                    String g = r.getGateway().getHostAddress();
+                    if (g != null && g.contains(".")) return g;
+                }
             }
+        }
+        // Android keeps the Wi-Fi default route in a per-network table on some builds.
+        WifiManager wm = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
+        DhcpInfo d = wm.getDhcpInfo();
+        if (d != null && d.gateway != 0) {
+            int g = d.gateway;
+            return (g & 0xff) + "." + ((g >> 8) & 0xff) + "." + ((g >> 16) & 0xff) + "." + ((g >> 24) & 0xff);
         }
         return "";
     }
@@ -204,30 +213,49 @@ public class KeeperService extends Service {
 
     private boolean login(int slot, Network wifi) {
         String gw = gateway(wifi);
-        if (gw.isEmpty()) return false;
+        if (gw.isEmpty()) {
+            android.util.Log.w("PK", "no gateway for login");
+            return false;
+        }
+        try {
+            String u = URLEncoder.encode(Config.user(this, slot), "UTF-8");
+            String p = URLEncoder.encode(Config.pass(this, slot), "UTF-8");
+            String dst = URLEncoder.encode(PROBE, "UTF-8");
+            // MikroTik hotspot (KBU.WiFi)
+            if (post(gw, "/login", "username=" + u + "&password=" + p + "&dst=" + dst + "&popup=true")) {
+                return true;
+            }
+            // IBSG Lite portal (KBU-FL7)
+            return post(gw, "/portal/user-authen.php", "txtLogin=" + u + "&txtPasswd=" + p
+                    + "&btnLogin=Login&reqUrl=" + dst + "&reqCheck=false");
+        } catch (Exception e) {
+            android.util.Log.w("PK", "login: " + e);
+            return false;
+        }
+    }
+
+    private boolean post(String gw, String path, String body) {
         HttpURLConnection c = null;
         try {
-            String body = "username=" + URLEncoder.encode(Config.user(this, slot), "UTF-8")
-                    + "&password=" + URLEncoder.encode(Config.pass(this, slot), "UTF-8")
-                    + "&dst=" + URLEncoder.encode(PROBE, "UTF-8")
-                    + "&popup=true";
-            c = (HttpURLConnection) new URL("http://" + gw + "/login").openConnection();
+            c = (HttpURLConnection) new URL("http://" + gw + path).openConnection();
             c.setRequestMethod("POST");
             c.setDoOutput(true);
             c.setConnectTimeout(6000);
             c.setReadTimeout(6000);
             c.setInstanceFollowRedirects(false);
             c.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
-            c.setFixedLengthStreamingMode(body.getBytes("UTF-8").length);
+            byte[] payload = body.getBytes("UTF-8");
+            c.setFixedLengthStreamingMode(payload.length);
             OutputStream out = c.getOutputStream();
-            out.write(body.getBytes("UTF-8"));
+            out.write(payload);
             out.close();
             int code = c.getResponseCode();
+            android.util.Log.i("PK", "post " + path + " -> " + code);
             drain(code >= 400 ? c.getErrorStream() : c.getInputStream());
             Thread.sleep(400);
             return online();
         } catch (Exception e) {
-            android.util.Log.w("PK", "login gw=" + gw + ": " + e);
+            android.util.Log.w("PK", "post " + path + ": " + e);
             return false;
         } finally {
             if (c != null) c.disconnect();

@@ -103,6 +103,20 @@ public class MainActivity extends Activity {
         });
         root.addView(toggle);
 
+        Button jump = new Button(this);
+        jump.setText("Switch network (FL7 / KBU)");
+        jump.setOnClickListener(v -> {
+            try {
+                Intent i = Build.VERSION.SDK_INT >= 29
+                        ? new Intent(Settings.Panel.ACTION_WIFI)
+                        : new Intent(Settings.ACTION_WIFI_SETTINGS);
+                startActivity(i);
+            } catch (Exception e) {
+                startActivity(new Intent(Settings.ACTION_WIFI_SETTINGS));
+            }
+        });
+        root.addView(jump);
+
         Button battery = new Button(this);
         battery.setText("Allow background (battery)");
         battery.setOnClickListener(v -> {

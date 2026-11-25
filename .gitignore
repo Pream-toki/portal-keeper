@@ -9,3 +9,4 @@ android/seed.properties
 android/debug.keystore
 *.apk
 *.idsig
+portal-keeper-status.txt

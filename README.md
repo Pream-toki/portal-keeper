@@ -30,10 +30,15 @@ clicking.
 
 - Foreground service, checks every 10 s, starts again after a reboot.
 - Binds its own requests to the Wi-Fi network, so mobile data cannot mask a signed-out portal.
-- Needs Location permission — Android only reveals the Wi-Fi name with it.
+- Location permission is needed to read the Wi-Fi name, and the service declares a location
+  foreground type so the name stays readable with the screen off (otherwise the OS redacts it and
+  the app cannot tell which account to use).
 - Allow background/battery once, or the phone will kill the service.
 
 The APK is pre-seeded with the two campus accounts and they can be edited in the app.
+
+Verified on a HyperOS 2 phone on `KBU-FL7`: service foreground, notification reading
+`Signed in · KBU-FL7`, Wi-Fi name still readable with the screen off.
 
 ## How the sign-in works
 
